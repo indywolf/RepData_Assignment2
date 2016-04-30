@@ -6,18 +6,109 @@ date: "April 23, 2016"
 output: html_document
 ---
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+## Synopsis
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+In this document we will be examining the storm data captured from the NOAA and covering the period 1950 thru November 2011.  The goal is to identify which types of storm events have the greatest impact to public health and to the economy.
+
+
+
+
+## Data Processing
+The storm data is presented as a csv file that zipped in a bzip2 algorithm so first need to uncompress and load the file.  Use head to verify data is loaded and presentable.
 
 ```{r}
-summary(cars)
+stormdata <- read.csv("repdata-data-StormData.csv.bz2")
+head(stormdata)
+```
+There are 37 variables associated with this data, the vast majority of which aren't going to be utilized in this analysis.  First the dataset will be reduced to just include the event type along with health and economic information.  Then, since the fatalaties and injuries variables are clean data with only integers, aggregate data sets will be created for viewing the health impact.
+
+```{r}
+reduceddata <- stormdata[,c("EVTYPE","FATALITIES","INJURIES","PROPDMG", "PROPDMGEXP","CROPDMG","CROPDMGEXP")]
+
+fatalities <- aggregate(reduceddata$FATALITIES, by=list(EVTYP=reduceddata$EVTYP), sum)
+injuries <- aggregate(reduceddata$INJURIES, by=list(EVTYP=reduceddata$EVTYP), sum)
 ```
 
-You can also embed plots, for example:
+Next, the economic cost will be aggregated across weather events.  The dollar costs for property and crop damage are factored across 2 variables each  Property damage is calculated by multiplying the PROPDMG number against the PROPDMGEXP value, which will factor by thousands, millions, billions.  The same calculation will be made for crop dmg.  So first the values in the EXP variable (K, M, B, etc) will be factored into numbers.  Numbers will be rendered into a power of 10. Anything 0, ?, -, + will be marked as a 1.
 
-```{r, echo=FALSE}
-plot(cars)
+```{r}
+
+sort(unique(reduceddata$PROPDMGEXP))
+reduceddata$PROPDMGEXPNUM[reduceddata$PROPDMGEXP == ''] <-  as.numeric(1)
+reduceddata$PROPDMGEXPNUM[reduceddata$PROPDMGEXP == '-'] <-  as.numeric(1)
+reduceddata$PROPDMGEXPNUM[reduceddata$PROPDMGEXP == '?'] <-  1
+reduceddata$PROPDMGEXPNUM[reduceddata$PROPDMGEXP == '+'] <-  1
+reduceddata$PROPDMGEXPNUM[reduceddata$PROPDMGEXP == '0'] <-  0
+reduceddata$PROPDMGEXPNUM[reduceddata$PROPDMGEXP == '1'] <-  1
+reduceddata$PROPDMGEXPNUM[reduceddata$PROPDMGEXP == '2'] <-  10
+reduceddata$PROPDMGEXPNUM[reduceddata$PROPDMGEXP == '3'] <-  100
+reduceddata$PROPDMGEXPNUM[reduceddata$PROPDMGEXP == '4'] <-  10000
+reduceddata$PROPDMGEXPNUM[reduceddata$PROPDMGEXP == '5'] <-  100000
+reduceddata$PROPDMGEXPNUM[reduceddata$PROPDMGEXP == '6'] <-  1000000
+reduceddata$PROPDMGEXPNUM[reduceddata$PROPDMGEXP == '7'] <-  10000000
+reduceddata$PROPDMGEXPNUM[reduceddata$PROPDMGEXP == '8'] <-  100000000
+reduceddata$PROPDMGEXPNUM[reduceddata$PROPDMGEXP == 'B'] <-  1000000000
+reduceddata$PROPDMGEXPNUM[reduceddata$PROPDMGEXP == 'h'] <-  100
+reduceddata$PROPDMGEXPNUM[reduceddata$PROPDMGEXP == 'H'] <-  100
+reduceddata$PROPDMGEXPNUM[reduceddata$PROPDMGEXP == 'K'] <-  1000
+reduceddata$PROPDMGEXPNUM[reduceddata$PROPDMGEXP == 'm'] <-  1000000
+reduceddata$PROPDMGEXPNUM[reduceddata$PROPDMGEXP == 'M'] <-  as.numeric(1000000)
+
+sort(unique(reduceddata$CROPDMGEXP))
+reduceddata$CROPDMGEXPNUM[reduceddata$CROPDMGEXP == ''] <-  1
+reduceddata$CROPDMGEXPNUM[reduceddata$CROPDMGEXP == '?'] <-  1
+reduceddata$CROPDMGEXPNUM[reduceddata$CROPDMGEXP == '0'] <-  0
+reduceddata$CROPDMGEXPNUM[reduceddata$CROPDMGEXP == '2'] <-  100
+reduceddata$CROPDMGEXPNUM[reduceddata$CROPDMGEXP == 'B'] <-  1000000000
+reduceddata$CROPDMGEXPNUM[reduceddata$CROPDMGEXP == 'k'] <-  1000
+reduceddata$CROPDMGEXPNUM[reduceddata$CROPDMGEXP == 'K'] <-  1000
+reduceddata$CROPDMGEXPNUM[reduceddata$CROPDMGEXP == 'm'] <-  1000000
+reduceddata$CROPDMGEXPNUM[reduceddata$CROPDMGEXP == 'M'] <-  1000000
+```
+Final step in data preparation will create a new column for total cost.  This will be two steps, first will multiple the prop and crop columns against their factor and then add the values together for total cost.
+
+```{r}
+reduceddata$cropcost <- reduceddata$CROPDMG * reduceddata$CROPDMGEXPNUM
+reduceddata$propcost <- reduceddata$PROPDMG * reduceddata$PROPDMGEXPNUM
+reduceddata$totalcost <- reduceddata$cropcost + reduceddata$propcost
+totalcost <- aggregate(reduceddata$totalcost, by=list(EVTYPE=reduceddata$EVTYPE), sum)
+
+```
+## Results
+Now that the data is prepared a few graphs can be generated to examine events that have the highest costs in regards to health and economic impact.  First, the events by highest fatalities and injuries.
+
+```{r}
+colnames(fatalities)[colnames(fatalities)=="x"] <- "fatalities"
+sortedfatalities <- fatalities[order(-fatalities$fatalities),]
+top20fatalities <- sortedfatalities[1:20,]
+
+colnames(injuries)[colnames(injuries)=="x"] <- "injuries"
+sortedinjuries <- injuries[order(-injuries$injuries),]
+top20injuries <- sortedinjuries[1:20,]
+
+par(mar=c(12,4,3,2), las=3, mgp=c(3,1,0))
+barplot(top20fatalities$fatalities, names.arg=top20fatalities$EVTYP,
+        ylab="Fatalities", ylim=c(0,6000), main="Number of Fatalities Spanning 1950 -> Nov 2011")
+
+barplot(top20injuries$injuries/1000, names.arg=top20injuries$EVTYP,
+        ylab="Injuries (in thousands)", ylim=c(0,100), 
+        main="Number of Injuries Spanning 1950 -> Nov 2011")
+
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+As can be seen in both graphs, Tornado's are the clear leader in fatalities and injuries caused by a weather event.  Last question to answer is which event has the most economic impact.
+
+```{r}
+colnames(totalcost)[colnames(totalcost)=="x"] <- "totalcost"
+sortedcost <- totalcost[order(-totalcost$totalcost),]
+top20cost <- sortedcost[1:20,]
+
+par(mar=c(12,4,3,2), las=3, mgp=c(3,1,0))
+barplot(top20cost$totalcost/1000000000, names.arg=top20cost$EVTYP,
+        ylab="Cost (billions)", ylim=c(0,160), 
+        main="Economic Cost of Weather Events Spanning 1950 -> Nov 2011")
+```
+
+Floods are the most expensive weather event from a purely economical cost perspective.
+
+
